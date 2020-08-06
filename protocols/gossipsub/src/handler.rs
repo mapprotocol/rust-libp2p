@@ -57,6 +57,9 @@ pub struct GossipsubHandler {
 
     /// Flag determining whether to maintain the connection to the peer.
     keep_alive: KeepAlive,
+
+    inbound_substreams: usize,
+    outbound_substreams: usize,
 }
 
 /// State of the inbound substream, opened either by us or by the remote.
@@ -101,6 +104,8 @@ impl GossipsubHandler {
             outbound_substream_establishing: false,
             send_queue: SmallVec::new(),
             keep_alive: KeepAlive::Yes,
+            inbound_substreams: 0,
+            outbound_substreams: 0,
         }
     }
 }
@@ -123,6 +128,13 @@ impl ProtocolsHandler for GossipsubHandler {
     ) {
         // new inbound substream. Replace the current one, if it exists.
         trace!("New inbound substream request");
+        self.inbound_substreams += 1;
+        if self.inbound_substreams > 1 {
+            warn!(
+                "New gossipsub inbound substream. Count {}",
+                self.inbound_substreams
+            );
+        }
         self.inbound_substream = Some(InboundSubstreamState::WaitingInput(substream));
     }
 
@@ -131,6 +143,10 @@ impl ProtocolsHandler for GossipsubHandler {
         substream: <Self::OutboundProtocol as OutboundUpgrade<NegotiatedSubstream>>::Output,
         message: Self::OutboundOpenInfo,
     ) {
+        self.outbound_substreams += 1;
+        if self.outbound_substreams > 1 {
+            warn!("Outbound substream created: {}", self.outbound_substreams);
+        }
         self.outbound_substream_establishing = false;
         // Should never establish a new outbound substream if one already exists.
         // If this happens, an outbound message is not sent.
@@ -150,11 +166,12 @@ impl ProtocolsHandler for GossipsubHandler {
     fn inject_dial_upgrade_error(
         &mut self,
         _: Self::OutboundOpenInfo,
-        _: ProtocolsHandlerUpgrErr<
+        e: ProtocolsHandlerUpgrErr<
             <Self::OutboundProtocol as OutboundUpgrade<NegotiatedSubstream>>::Error,
         >,
     ) {
         self.outbound_substream_establishing = false;
+        error!("Dial upgrade error {:?}", e);
         // Ignore upgrade errors for now.
         // If a peer doesn't support this protocol, this will just ignore them, but not disconnect
         // them.
@@ -210,7 +227,8 @@ impl ProtocolsHandler for GossipsubHandler {
                                     self.inbound_substream =
                                         Some(InboundSubstreamState::WaitingInput(substream));
                                 }
-                                _ => {
+                                e => {
+                                    error!("Error on stream: {:?}", e);
                                     // More serious errors, close this side of the stream. If the
                                     // peer is still around, they will re-establish their
                                     // connection
@@ -221,6 +239,7 @@ impl ProtocolsHandler for GossipsubHandler {
                         }
                         // peer closed the stream
                         Poll::Ready(None) => {
+                            error!("Peer closed the stream");
                             self.inbound_substream =
                                 Some(InboundSubstreamState::Closing(substream));
                         }
@@ -238,7 +257,7 @@ impl ProtocolsHandler for GossipsubHandler {
                                 // Don't close the connection but just drop the inbound substream.
                                 // In case the remote has more to send, they will open up a new
                                 // substream.
-                                debug!("Inbound substream error while closing: {:?}", e);
+                                error!("Inbound substream error while closing: {:?}", e);
                             }
 
                             self.inbound_substream = None;
@@ -296,6 +315,7 @@ impl ProtocolsHandler for GossipsubHandler {
                                         self.outbound_substream =
                                             Some(OutboundSubstreamState::WaitingOutput(substream));
                                     } else {
+                                        error!("Error on outbound: {:?}", e);
                                         return Poll::Ready(ProtocolsHandlerEvent::Close(e));
                                     }
                                 }
