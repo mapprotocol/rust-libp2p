@@ -1320,13 +1320,18 @@ impl NetworkBehaviour for Gossipsub {
         // Handle subscriptions
         // Update connected peers topics
         if !event.subscriptions.is_empty() {
+            debug!("Subscriptions not empty");
             self.handle_received_subscriptions(&event.subscriptions, &propagation_source);
         }
+
+        debug!("Handling {} messages", event.messages.len(),);
 
         // Handle messages
         for message in event.messages {
             self.handle_received_message(message, &propagation_source);
         }
+
+        debug!("Handled all messages",);
 
         // Handle control messages
         // group some control messages, this minimises SendEvents (code is simplified to handle each event at a time however)
@@ -1334,6 +1339,7 @@ impl NetworkBehaviour for Gossipsub {
         let mut graft_msgs = vec![];
         let mut prune_msgs = vec![];
         for control_msg in event.control_msgs {
+            debug!("Handling control message",);
             match control_msg {
                 GossipsubControlAction::IHave {
                     topic_hash,
@@ -1349,14 +1355,18 @@ impl NetworkBehaviour for Gossipsub {
             }
         }
         if !ihave_msgs.is_empty() {
+            debug!("Handling ihave msg",);
             self.handle_ihave(&propagation_source, ihave_msgs);
         }
         if !graft_msgs.is_empty() {
+            debug!("Handling graft msg",);
             self.handle_graft(&propagation_source, graft_msgs);
         }
         if !prune_msgs.is_empty() {
+            debug!("Handling prune msg",);
             self.handle_prune(&propagation_source, prune_msgs);
         }
+        debug!("Event injected",);
     }
 
     fn poll(
