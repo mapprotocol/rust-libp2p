@@ -659,6 +659,7 @@ impl Gossipsub {
             debug!("Message already received, ignoring. Message: {:?}", msg_id);
             return;
         }
+        debug!("Adding to memcache");
         self.mcache.put(msg.clone());
 
         // dispatch the message to the user
@@ -675,6 +676,7 @@ impl Gossipsub {
             self.forward_msg(msg, Some(propagation_source));
             debug!("Completed message handling for message: {:?}", message_id);
         }
+        debug!("Completed handling message");
     }
 
     /// Handles received subscriptions.
